@@ -27,7 +27,7 @@ body {
         position: absolute;
         left: 0;
         bottom: 0;
-        min-width: 100vw;
+        min-width: 110vw; /* Always have a little bit of overdraw, for animation lead time */
     }
 
     & > .far-mountains {
