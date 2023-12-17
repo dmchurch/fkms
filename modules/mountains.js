@@ -1,8 +1,8 @@
 import { nextAnimationFrame } from "./helpers.js";
 
 export class Mountains {
-    /** @type {SVGPolygonElement} */
-    polygon;
+    /** @type {SVGPathElement} */
+    path;
 
     /** @type {SVGSVGElement} */
     svg;
@@ -10,8 +10,11 @@ export class Mountains {
     renderMin = 0;
     renderMax = 0;
 
-    minElevation;
+    minElevation = 0;
     maxElevation;
+
+    baseElevation = 0;
+    startElevation;
 
     /** @type {number} */
     lastElevation;
@@ -21,25 +24,39 @@ export class Mountains {
     #playing = false;
     #updateQueued = false;
 
+    /** @type {string[]} */
+    pathSegments = [];
+
+    get pathStart() {
+        // To start: move the cursor to the left side of the render window at starting elevation
+        return `M ${this.renderMin},${this.startElevation}`;
+    }
+    get pathEnd() {
+        // Drop a vertical to base elevation, horizontal back to left side of render window, then close the path
+        return `V ${this.baseElevation} H ${this.renderMin} Z`;
+    }
+
     /**
-     * @param {string} polygonId ID of the <polygon> SVG element
-     * @param {number} [maxElevation] Maximum elevation of mountains; defaults to full height of SVG's viewport
-     * @param {number} [minElevation] Minimum elevation of mountains; default 0
+     * @param {string} pathId ID of the <path> SVG element
+     * @param {Partial<Mountains>} [options] Properties to assign on this object
      */
-    constructor(polygonId, maxElevation, minElevation) {
-        const element = document.getElementById(polygonId);
-        if (!(element instanceof SVGPolygonElement)) {
-            throw new TypeError(`Element ${polygonId} is not a <polygon> element!`);
+    constructor(pathId, options = {}) {
+        const element = document.getElementById(pathId);
+        if (!(element instanceof SVGPathElement)) {
+            throw new TypeError(`Element ${pathId} is not a <path> element!`);
         }
-        this.polygon = element;
+        this.path = element;
         this.svg = element.ownerSVGElement;
+        this.update = this.update.bind(this);
 
-        this.polygon.points.initialize(this.createPoint(0, 0)); // lower-right corner
-        this.polygon.points.appendItem(this.createPoint(0, 0)); // lower-left corner
+        this.maxElevation = element.ownerSVGElement.viewBox.animVal.height;
 
-        this.minElevation = minElevation ?? 0;
-        this.maxElevation = maxElevation ?? element.ownerSVGElement.viewBox.animVal.height;
-        this.update = this.update.bind(this)
+        // set all overrides from passed-in options
+        Object.assign(this, options);
+
+        this.startElevation ??= this.randomElevation();
+        this.lastElevation ??= this.startElevation;
+
         this.queueUpdate();
     }
 
@@ -54,22 +71,28 @@ export class Mountains {
         this.speed = 0;
     }
 
+    randomElevation() {
+        return Math.random() * (this.minElevation - this.maxElevation) + this.minElevation;
+    }
+
     /** @param {IdleDeadline} [deadline] Optional deadline to restrict processing time */
     update(deadline) {
-        const renderTarget = this.svg.viewBox.animVal.x + this.svg.viewBox.animVal.width;
+        const viewBox = this.svg.viewBox.animVal;
+        const renderTarget = viewBox.x + viewBox.width;
 
+        // Add segments until we've rendered past the right edge of the viewport
         while (this.renderMax < renderTarget && (!deadline || deadline.timeRemaining() > 0)) {
-            const newElevation = Math.random() * (this.maxElevation - this.minElevation) + this.minElevation;
-            if (this.lastElevation != undefined) {
-                const distance = Math.abs(newElevation - this.lastElevation);
-                this.renderMax += distance;
-            }
-            this.lastElevation = newElevation;
-            this.polygon.points.appendItem(this.createPoint(this.renderMax, -newElevation));
+            this.addNextPathSegment();
         }
 
-        // set the first point (lower-right corner) to the new right side
-        this.polygon.points.getItem(0).x = this.renderMax;
+        // Remove segments as long as we can do so and not cut into the left edge of the viewport
+        while (this.pathSegments.length > 0 && this.getNextRenderMin() < viewBox.x && (!deadline || deadline.timeRemaining() > 0)) {
+            this.removeFirstPathSegment();
+        }
+
+        // concatenate and set the d element
+        this.path.setAttribute("d", `${this.pathStart} ${this.pathSegments.join(" ")} ${this.pathEnd}`);
+
         if (deadline) {
             this.#updateQueued = false;
         }
@@ -83,11 +106,27 @@ export class Mountains {
         }
     }
 
-    createPoint(x, y) {
-        const point = this.svg.createSVGPoint();
-        point.x = x;
-        point.y = y;
-        return point;
+    getNextRenderMin() {
+        const segment = this.pathSegments[0];
+        const [_, x, _y] = segment.split(" ");
+        return parseFloat(x);
+    }
+
+    /** @protected */
+    removeFirstPathSegment() {
+        const segment = this.pathSegments.shift();
+        const [_, x, y] = segment.split(" ");
+        this.renderMin = parseFloat(x);
+        this.startElevation = parseFloat(y);
+    }
+
+    /** @protected */
+    addNextPathSegment() {
+        const newElevation = this.randomElevation();
+        const distance = Math.abs(newElevation - this.lastElevation);
+        this.renderMax += distance;
+        this.pathSegments.push(`L ${this.renderMax} ${newElevation}`);
+        this.lastElevation = newElevation;
     }
 
     async #animationLoop() {
@@ -100,7 +139,7 @@ export class Mountains {
             lastFrame = frameTime;
             viewBox.x += delta; // scroll by adjusting the position of the SVG's viewport onto its infinite canvas
             if (viewBox.x + viewBox.width > this.renderMax) {
-                // not time-critical, just add new polygons whenever you have a moment
+                // not time-critical, just add new path segments whenever you have a moment
                 this.queueUpdate();
             }
         }

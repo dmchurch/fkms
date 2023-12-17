@@ -35,7 +35,7 @@ body {
         grid-area: backdrop;
         z-index: 0;
 
-        & polygon {
+        & path {
             fill: #600000
         }
     }
@@ -45,7 +45,7 @@ body {
         grid-area: backdrop;
         z-index: 1;
 
-        & polygon {
+        & path {
             fill: #800000;
         }
     }
