@@ -1,0 +1,58 @@
+:root {
+    height: 100%;
+    width: 100%;
+    overflow: clip;
+    contain: strict;
+}
+
+body {
+    height: 100%;
+    width: 100%;
+    overflow: clip;
+}
+
+#background {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    display: grid;
+    background-color: lightsteelblue;
+    grid:
+        "backdrop" 3fr
+        "river" 2fr;
+    z-index: -1;
+
+    /* SVG images are anchored at the lower-left  */
+    & > * > svg {
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        min-width: 100vw;
+    }
+
+    & > .far-mountains {
+        position: relative;
+        grid-area: backdrop;
+        z-index: 0;
+
+        & polygon {
+            fill: #600000
+        }
+    }
+
+    & > .near-mountains {
+        position: relative;
+        grid-area: backdrop;
+        z-index: 1;
+
+        & polygon {
+            fill: #800000;
+        }
+    }
+
+    & > .river {
+        grid-area: river;
+        background: linear-gradient(skyblue, slateblue);
+        z-index: 2;
+    }
+}
