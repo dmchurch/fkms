@@ -93,9 +93,14 @@ export class BackdropElement {
     backdrop;
 
     /** Leftmost currently-rendered point @type {number} */
-    renderMin;
+    get renderMin() {
+        return this.cursorStart.x;
+    }
     /** Rightmost currently-rendered point @type {number} */
-    renderMax;
+    get renderMax() {
+        const lastEndpoint = this.segmentEndpoints.at(-1); // negative numbers index from the end
+        return lastEndpoint?.x ?? this.renderMin;
+    }
 
     /** Intended lowest (most-positive) point along the path @type {number} */
     elevationMin;
@@ -103,15 +108,18 @@ export class BackdropElement {
     elevationMax;
     /** The y value of the long flat part of the path @type {number} */
     elevationBase;
-    /** The y value the cursor should start at, at x = {@link renderMin} @type {number} */
-    elevationStart;
+
+    /** The point the cursor should start at prior to executing the path segments @type {{x: number, y: number}} */
+    cursorStart;
 
     /** An array of `<path>` command strings, to be concatenated with spaces between @type {string[]} */
     pathSegments = [];
+    /** An array of points, where each point is the cursor endpoint of the pathSegment with the same index @type {{x: number, y: number}[]} */
+    segmentEndpoints = [];
 
     get pathStart() {
         // To start: move the cursor to the left side of the render window at starting elevation
-        return `M ${this.renderMin},${this.elevationStart}`;
+        return `M ${this.cursorStart.x} ${this.cursorStart.y}`;
     }
     get pathEnd() {
         // Drop a vertical to base elevation, horizontal back to left side of render window, then close the path
@@ -139,16 +147,12 @@ export class BackdropElement {
 
         // set sensible defaults based on the render region
         const currentRegion = this.backdrop.renderRegion;
-        this.renderMin = this.renderMax = currentRegion.left;
-        this.elevationMin = currentRegion.bottom;
-        this.elevationMax = currentRegion.top;
-        this.elevationBase = currentRegion.bottom;
+        this.elevationMin = options.elevationMin ?? currentRegion.bottom;
+        this.elevationMax = options.elevationMax ?? currentRegion.top;
+        this.elevationBase = options.elevationBase ?? currentRegion.bottom;
 
-        // set overrides from passed-in options
-        Object.assign(this, options);
-
-        // if elevationStart hasn't been assigned yet (from options), assign it a random valid elevation
-        this.elevationStart ??= this.randomElevation();
+        // if cursorStart doesn't have a specified value, assign it a random valid elevation at the left of the render region
+        this.cursorStart = options.cursorStart ?? {x: currentRegion.left, y: this.randomElevation()};
 
         // queue an update, but don't take more than 100ms
         this.queueUpdate({ timeout: 100 });
@@ -197,7 +201,7 @@ export class BackdropElement {
             }
         }
 
-        let nextRenderMin = this.getNextRenderMin();
+        let nextRenderMin = this.pathSegments.length > 0 ? this.getNextRenderMin() : 0;
         // Remove segments as long as we can do so and not cut into the left edge of the viewport
         while (this.pathSegments.length > 0 && nextRenderMin < renderRegion.left) {
             this.removeFirstPathSegment();
@@ -225,7 +229,7 @@ export class BackdropElement {
     }
 
     /**
-     * Function defined by a {@link BackdropElement} subclass that returns the value that {@link renderMin} will get
+     * Function that returns the value that {@link renderMin} will get
      * set to after the next call to {@link removeFirstPathSegment}.
      *
      * this.{@link pathSegments}[] is guaranteed to have at least 1 element when this is called.
@@ -234,31 +238,54 @@ export class BackdropElement {
      * @returns {number}
      */
     getNextRenderMin() {
-        throw new Error(`getNextRenderMin not implemented in class ${this.constructor?.name}`);
+        return this.segmentEndpoints[0].x;
     }
 
     /**
-     * Function defined by a {@link BackdropElement} subclass that prunes the leftmost part of the path. This should
-     * modify {@link renderMin} and {@link elevationStart} to reflect the new starting position for the cursor,
-     * in addition to removing the first element (or potentially elements) of {@link pathSegments}.
+     * Function that prunes the leftmost part of the path. This should
+     * modify {@link cursorStart} to reflect the new starting position for the cursor,
+     * in addition to removing the first element (or potentially elements) of {@link pathSegments}
+     * and {@link segmentEndpoints}.
      *
      * this.{@link pathSegments}[] is guaranteed to have at least 1 element when this is called.
      *
      * @protected
      */
     removeFirstPathSegment() {
-        throw new Error(`removeFirstPathSegment not implemented in class ${this.constructor?.name}`);
+        this.pathSegments.shift();
+        this.cursorStart = this.segmentEndpoints.shift();
     }
 
     /**
-     * Function defined by a {@link BackdropElement} subclass that adds to the end of the path. This should
-     * modify {@link renderMax} to reflect the new rightmost rendered position, in addition to adding an element
-     * (or potentially elements) to the end of {@link pathSegments}.
+     * Function that adds a segment (or, potentially, segments) to the end of the path. This should
+     * ensure {@link renderMax} reflects the new rightmost rendered position, in addition to adding an element
+     * (or potentially elements) to the end of {@link pathSegments} and {@link segmentEndpoints}.
+     * 
+     * The default implementation calls {@link generatePathSegment} and appends the returned values to the appropriate arrays.
      *
      * @protected
      */
     addNextPathSegment() {
+        const cursor = {...this.cursorStart, ...this.segmentEndpoints.at(-1)};
+        const origCursor = {...cursor};
+        const segment = this.generatePathSegment(cursor);
+        if (origCursor.x === cursor.x && origCursor.y === cursor.y) {
+            console.warn(`Class ${this.constructor?.name} did not change the coordinates of the cursor during generatePathSegment!`, this, this.constructor, cursor);
+        }
+        this.pathSegments.push(segment);
+        this.segmentEndpoints.push(cursor);
+    }
+
+    /**
+     * Generate a new path segment, given the cursor starting position. Return the SVG path snippet and
+     * modify the cursor parameter to reflect the segment endpoing.
+     * 
+     * @param {{x: number, y: number}} cursor The starting location for the cursor (either the
+     *          starting point of the path or the endpoint of the previous segment). This parameter
+     *          should have its x and y attributes changed to the endpoint of the segment.
+     * @returns {string}
+     */
+    generatePathSegment(cursor) {
         throw new Error(`addNextPathSegment not implemented in class ${this.constructor?.name}`);
     }
 }
-
