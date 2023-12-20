@@ -1,4 +1,5 @@
 import { nextAnimationFrame, nextIdlePeriod } from "./helpers.js";
+import { Point } from "./geometry.js";
 
 
 export class ScrollingBackdrop {
@@ -92,11 +93,11 @@ export class BackdropElement {
     /** @type {ScrollingBackdrop} */
     backdrop;
 
-    /** Leftmost currently-rendered point @type {number} */
+    /** Leftmost currently-rendered x coordinate @type {number} */
     get renderMin() {
         return this.cursorStart.x;
     }
-    /** Rightmost currently-rendered point @type {number} */
+    /** Rightmost currently-rendered x coordinate @type {number} */
     get renderMax() {
         const lastEndpoint = this.segmentEndpoints.at(-1); // negative numbers index from the end
         return lastEndpoint?.x ?? this.renderMin;
@@ -109,12 +110,12 @@ export class BackdropElement {
     /** The y value of the long flat part of the path @type {number} */
     elevationBase;
 
-    /** The point the cursor should start at prior to executing the path segments @type {{x: number, y: number}} */
+    /** The point the cursor should start at prior to executing the path segments @type {Point} */
     cursorStart;
 
     /** An array of `<path>` command strings, to be concatenated with spaces between @type {string[]} */
     pathSegments = [];
-    /** An array of points, where each point is the cursor endpoint of the pathSegment with the same index @type {{x: number, y: number}[]} */
+    /** An array of points, where each point is the cursor endpoint of the pathSegment with the same index @type {Point[]} */
     segmentEndpoints = [];
 
     get pathStart() {
@@ -152,9 +153,9 @@ export class BackdropElement {
         this.elevationBase = options.elevationBase ?? currentRegion.bottom;
 
         // if cursorStart doesn't have a specified value, assign it a random valid elevation at the left of the render region
-        this.cursorStart = options.cursorStart ?? {x: currentRegion.left, y: this.randomElevation()};
+        this.cursorStart = options.cursorStart ?? new Point(currentRegion.left, this.randomElevation());
 
-        // queue an update, but don't take more than 100ms
+        // queue an update in case the subclass doesn't do it, but don't take more than 100ms
         this.queueUpdate({ timeout: 100 });
     }
 
@@ -266,10 +267,10 @@ export class BackdropElement {
      * @protected
      */
     addNextPathSegment() {
-        const cursor = {...this.cursorStart, ...this.segmentEndpoints.at(-1)};
-        const origCursor = {...cursor};
+        const cursor = Point.from(this.segmentEndpoints.at(-1) ?? this.cursorStart);
+        const origCursor = Point.from(cursor);
         const segment = this.generatePathSegment(cursor);
-        if (origCursor.x === cursor.x && origCursor.y === cursor.y) {
+        if (origCursor.equals(cursor)) {
             console.warn(`Class ${this.constructor?.name} did not change the coordinates of the cursor during generatePathSegment!`, this, this.constructor, cursor);
         }
         this.pathSegments.push(segment);
@@ -280,7 +281,7 @@ export class BackdropElement {
      * Generate a new path segment, given the cursor starting position. Return the SVG path snippet and
      * modify the cursor parameter to reflect the segment endpoing.
      * 
-     * @param {{x: number, y: number}} cursor The starting location for the cursor (either the
+     * @param {Point} cursor The starting location for the cursor (either the
      *          starting point of the path or the endpoint of the previous segment). This parameter
      *          should have its x and y attributes changed to the endpoint of the segment.
      * @returns {string}
